@@ -236,7 +236,7 @@ async function request(path, ms) {
 
   for (const base of list) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), ms || 2800);
+    const timer = setTimeout(() => ctrl.abort(), ms || 4500); // TLS 握手约 1s，太短会赌输
     try {
       const res = await fetch(base + path, { cache: 'no-store', signal: ctrl.signal });
       if (res.status >= 500) {
