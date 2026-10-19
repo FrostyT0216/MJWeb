@@ -1,7 +1,7 @@
 /*
  * app.js · 天马门禁 WebApp
- * 工牌由 Lanyard（Three.js）渲染：点击翻面，下拉开门。
- * 设备接口：GET /ping /status /open（ESP32，默认 http://mj.local:48733）
+ * 点击工牌翻面，下拉工牌开门。前端在 GitHub Pages，设备只提供 JSON 接口。
+ * 端口固定 48733；主机可填 mj.local 或设备 IP（手机建议填 IP）。
  */
 
 import { createLanyard } from './lanyard.js';
@@ -22,78 +22,65 @@ const toastSub = $('toastSub');
 const tickEl = toastEl.querySelector('.tick');
 const scrim = $('scrim');
 const sheet = $('sheet');
-const baseInput = $('baseInput');
+const hostInput = $('hostInput');
 const saveBtn = $('saveBtn');
-const testBtn = $('testBtn');
-const facts = $('facts');
-const demoToggle = $('demoToggle');
-const noteText = $('noteText');
+const sheetClose = $('sheetClose');
+const diag = $('diag');
 
 const CARD = { name: '小马', id: '0000' };
-const DEFAULT_BASE = 'http://mj.local:48733';
-const PARAMS = new URLSearchParams(location.search);
-const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>';
-const BANG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 6.5v7.2"/><circle cx="12" cy="18" r="1.1" fill="currentColor" stroke="none"/></svg>';
 
-const store = {
-  get(key, fallback) {
-    try {
-      const v = localStorage.getItem(key);
-      return v === null ? fallback : v;
-    } catch {
-      return fallback;
-    }
-  },
-  set(key, value) {
-    try {
-      localStorage.setItem(key, value);
-    } catch {
-      /* 忽略隐私模式下的写入失败 */
-    }
-  }
-};
+const DEVICE_PORT = 48733;
+const HOST_KEY = 'mj.host';
 
-const isPrivateHost = host =>
-  host === 'mj.local' ||
-  host === 'localhost' ||
-  /^127\./.test(host) ||
-  /^192\.168\./.test(host) ||
-  /^10\./.test(host) ||
-  /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-
-function defaultBase() {
-  const { protocol, hostname, port, origin } = location;
-  if (protocol === 'http:' && (port === '48733' || isPrivateHost(hostname))) return origin;
-  return DEFAULT_BASE;
-}
+const CHECK =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>';
+const BANG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 6.5v7.2"/><circle cx="12" cy="18" r="1.1" fill="currentColor" stroke="none"/></svg>';
 
 const state = {
-  base: normalizeBase(store.get('mj.base', '')) || defaultBase(),
-  demo: store.get('mj.demo', '0') === '1',
+  host: 'mj.local',
   online: null,
   err: '',
+  perm: 'unknown',
   mon: 0,
   zanshi: 0,
   yanshi: 10000,
   zAt: 0,
   busy: false,
-  pull: 0,
-  rssi: null
+  pull: 0
 };
 
 let lanyard = null;
 let pull = null;
-let demoUntil = 0;
 let guardUntil = 0;
 let toastTimer = 0;
 let lastKey = '';
-let lastFacts = '';
 
-function normalizeBase(value) {
-  let v = String(value || '').trim().replace(/\/+$/, '');
-  if (!v) return '';
-  if (!/^https?:\/\//i.test(v)) v = 'http://' + v;
-  return v;
+function deviceBase() {
+  if (location.port === String(DEVICE_PORT)) return location.origin;
+  return `http://${state.host}:${DEVICE_PORT}`;
+}
+
+function normalizeHost(value) {
+  let v = String(value || '').trim();
+  v = v.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
+  return v || 'mj.local';
+}
+
+function loadHost() {
+  try {
+    return normalizeHost(localStorage.getItem(HOST_KEY) || 'mj.local');
+  } catch {
+    return 'mj.local';
+  }
+}
+
+function saveHost(value) {
+  try {
+    localStorage.setItem(HOST_KEY, value);
+  } catch {
+    /* 隐私模式下忽略 */
+  }
 }
 
 function leftMs() {
@@ -109,39 +96,76 @@ function haptic(pattern) {
   }
 }
 
+function cellular() {
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  return !!conn && conn.type === 'cellular';
+}
+
+async function readPermission() {
+  if (!navigator.permissions?.query) {
+    state.perm = 'unknown';
+    return;
+  }
+  for (const name of ['local-network', 'local-network-access', 'loopback-network']) {
+    try {
+      const result = await navigator.permissions.query({ name });
+      state.perm = result.state;
+      return;
+    } catch {
+      /* 浏览器不认这个权限名，继续试下一个 */
+    }
+  }
+  state.perm = 'unknown';
+}
+
 /* ---------- 界面 ---------- */
 
 function render() {
   const online = state.online === true;
-  const demo = state.demo;
-  const open = (online || demo) && state.mon === 2;
+  const open = online && state.mon === 2;
   const secs = open ? Math.max(1, Math.ceil(leftMs() / 1000)) : 0;
 
-  const key = [demo, state.online, open, secs, state.pull > 0, state.pull >= 1, state.err].join('|');
+  const key = [state.online, open, secs, state.pull > 0, state.pull >= 1, state.err, state.perm].join('|');
   if (key !== lastKey) {
     lastKey = key;
 
-    netPill.className = 'pill ' + (demo ? 'demo' : online ? 'on' : state.online === null ? '' : 'off');
-    netText.textContent = demo ? '演示' : online ? '已连接' : state.online === null ? '连接中' : '未连接';
+    netPill.className = 'pill ' + (online ? 'on' : state.online === null ? '' : 'off');
+    netText.textContent = online ? '已连接' : state.online === null ? '连接中' : '未连接';
 
-    stateWrap.className = 'state' + (open ? ' open' : !online && !demo && state.online === false ? ' off' : '');
+    stateWrap.className = 'state' + (open ? ' open' : state.online === false ? ' off' : '');
     stateText.textContent = open
       ? `已开门 · ${secs} 秒后自动上锁`
-      : demo
-        ? '演示模式'
-        : online
-          ? '门已上锁'
-          : state.online === null
-            ? '正在连接'
-            : '设备未连接';
+      : online
+        ? '门已上锁'
+        : state.online === null
+          ? '正在连接'
+          : '设备未连接';
 
     let hint = '下拉工牌开门 · 点击翻面';
     if (state.pull > 0) hint = state.pull >= 1 ? '松手开门' : '继续下拉';
-    else if (state.err === 'mixed') hint = 'HTTPS 页面无法访问 HTTP 设备';
-    else if (!online && !demo && state.online === false) hint = '检查设备地址与 WiFi';
+    else if (state.perm === 'denied') hint = '浏览器已禁用本地网络访问';
+    else if (state.online === false) {
+      hint = location.protocol === 'https:' ? '连不上设备 · 点右上角填 IP' : '点右上角重试';
+      if (cellular()) hint = '请先连接门禁所在 WiFi';
+    }
+
     hintText.textContent = hint;
     hintText.classList.toggle('ready', state.pull >= 1);
   }
+
+  if (sheet.classList.contains('open')) renderDiag();
+}
+
+function renderDiag() {
+  const permText =
+    state.perm === 'granted' ? '已允许' : state.perm === 'denied' ? '已拒绝' : '浏览器未提供';
+  const online = state.online === true ? '已连接' : state.online === false ? '未连接' : '检测中';
+  const page = location.protocol === 'https:' ? 'HTTPS' : location.protocol === 'http:' ? 'HTTP' : '本地文件';
+
+  diag.innerHTML =
+    `<span>设备</span><b>${online}</b>` +
+    `<span>页面</span><b>${page}</b>` +
+    `<span>本地网络权限</span><b class="${state.perm === 'denied' ? 'bad' : ''}">${permText}</b>`;
 }
 
 function renderMeter() {
@@ -159,29 +183,23 @@ function toast(title, sub, kind) {
 
 /* ---------- 设备 ---------- */
 
-function classify() {
-  if (location.protocol === 'https:' && state.base.startsWith('http:')) return 'mixed';
-  return 'net';
-}
-
-function request(path, ms) {
+function getJSON(path, ms) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms || 3500);
-  return fetch(state.base + path, { cache: 'no-store', mode: 'cors', signal: ctrl.signal })
+  return fetch(deviceBase() + path, { cache: 'no-store', signal: ctrl.signal })
     .then(res => {
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res;
+      return res.json();
     })
     .finally(() => clearTimeout(timer));
 }
 
-const getJSON = (path, ms) => request(path, ms).then(res => res.json());
-
 function send(path, ms) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms || 4000);
-  return fetch(state.base + path, { cache: 'no-store', mode: 'cors', signal: ctrl.signal })
-    .finally(() => clearTimeout(timer));
+  return fetch(deviceBase() + path, { cache: 'no-store', signal: ctrl.signal }).finally(() =>
+    clearTimeout(timer)
+  );
 }
 
 function applyStatus(j) {
@@ -195,46 +213,46 @@ function applyStatus(j) {
     state.yanshi = j.yanshi || 10000;
     state.zAt = performance.now();
   }
-  state.rssi = typeof j.rssi === 'number' ? j.rssi : null;
 }
 
 async function poll() {
-  if (state.demo) {
-    render();
-    setTimeout(poll, 800);
-    return;
-  }
-
   try {
     applyStatus(await getJSON('/status'));
   } catch {
     state.online = false;
-    state.err = classify();
+    state.err = 'net';
+    await readPermission();
   }
   render();
-  renderFacts();
+  setTimeout(poll, state.online ? (state.mon === 2 ? 600 : 1600) : 3000);
+}
 
-  const delay = state.online ? (state.mon === 2 ? 600 : 1600) : 3000;
-  setTimeout(poll, delay);
+async function retry() {
+  state.online = null;
+  state.err = '';
+  lastKey = '';
+  render();
+  try {
+    applyStatus(await getJSON('/status', 3000));
+    render();
+    toast('设备已连接', '');
+  } catch {
+    state.online = false;
+    state.err = 'net';
+    await readPermission();
+    render();
+    toast(
+      state.perm === 'denied' ? '本地网络被禁用' : '未发现设备',
+      state.perm === 'denied' ? '请在浏览器设置中允许' : '检查 WiFi 与设备 IP',
+      'warn'
+    );
+  }
 }
 
 async function openDoor() {
   if (state.busy) return;
-  if (state.demo) {
-    demoUntil = performance.now() + 10000;
-    state.mon = 2;
-    state.zanshi = 10000;
-    state.yanshi = 10000;
-    state.zAt = performance.now();
-    guardUntil = performance.now() + 1000;
-    render();
-    haptic([12, 42, 18]);
-    toast('已开门', '演示模式');
-    return;
-  }
   if (state.online !== true) {
-    toast('设备未连接', state.err === 'mixed' ? '需要 HTTP 环境' : '请检查设备地址', 'warn');
-    openSheet();
+    toast('设备未连接', '点右上角检查设备 IP', 'warn');
     return;
   }
 
@@ -245,6 +263,7 @@ async function openDoor() {
       toast('门正在动作', '请稍候再试', 'warn');
       return;
     }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     state.mon = 2;
     state.zanshi = state.yanshi;
     state.zAt = performance.now();
@@ -255,7 +274,7 @@ async function openDoor() {
   } catch {
     toast('开门失败', '设备没有响应', 'err');
     state.online = false;
-    state.err = classify();
+    state.err = 'net';
     render();
   } finally {
     state.busy = false;
@@ -301,57 +320,14 @@ function endPull(event) {
 addEventListener('pointerup', endPull);
 addEventListener('pointercancel', endPull);
 
-/* ---------- 设置面板 ---------- */
-
-function netLabel() {
-  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (!conn) return '未知';
-  if (conn.type === 'wifi' || conn.type === 'ethernet') return 'WiFi';
-  if (conn.type === 'cellular') return '移动网络';
-  if (conn.effectiveType) return '网络 ' + String(conn.effectiveType).toUpperCase();
-  return '未知';
-}
-
-function renderFacts() {
-  const device = state.demo
-    ? '<b class="ok">演示模式</b>'
-    : state.online === true
-      ? '<b class="ok">已连接' + (state.rssi !== null ? ' · ' + state.rssi + ' dBm' : '') + '</b>'
-      : state.online === null
-        ? '<b>检测中…</b>'
-        : '<b class="bad">' + (state.err === 'mixed' ? '被浏览器拦截' : '无响应') + '</b>';
-
-  const html =
-    '<div><span>设备</span>' + device + '</div>' +
-    '<div><span>网络</span><b>' + netLabel() + '</b></div>' +
-    '<div><span>页面</span><b>' + (location.protocol === 'https:' ? 'HTTPS' : location.protocol === 'http:' ? 'HTTP' : '本地文件') + '</b></div>';
-
-  if (html !== lastFacts) {
-    lastFacts = html;
-    facts.innerHTML = html;
-  }
-
-  const mixed = location.protocol === 'https:' && state.base.startsWith('http:');
-  if (mixed) {
-    noteText.className = 'note warn';
-    noteText.innerHTML =
-      '当前页面是 <b>HTTPS</b>，浏览器禁止它访问局域网里的 <b>HTTP</b> 设备。' +
-      '请用手机在局域网内打开 <b>http://mj.local:48733</b>，或为设备配置 HTTPS 隧道。';
-  } else {
-    noteText.className = 'note';
-    noteText.innerHTML =
-      '手机需与 ESP32 处于同一 WiFi。地址默认 <b>http://mj.local:48733</b>；' +
-      '在浏览器菜单中选择「添加到主屏幕」即可像 App 一样使用。';
-  }
-}
+/* ---------- 地址面板 ---------- */
 
 function openSheet() {
-  baseInput.value = state.base;
-  demoToggle.checked = state.demo;
-  renderFacts();
+  hostInput.value = state.host;
   scrim.classList.add('show');
   sheet.classList.add('open');
   sheet.setAttribute('aria-hidden', 'false');
+  renderDiag();
 }
 
 function closeSheet() {
@@ -360,68 +336,36 @@ function closeSheet() {
   sheet.setAttribute('aria-hidden', 'true');
 }
 
-async function testConnection() {
-  if (state.demo) {
-    toast('演示模式', '已跳过设备检测', 'warn');
-    return;
-  }
-  state.online = null;
-  render();
-  renderFacts();
-  try {
-    applyStatus(await getJSON('/status', 3200));
-    render();
-    renderFacts();
-    toast('设备已连接', '');
-  } catch {
-    state.online = false;
-    state.err = classify();
-    render();
-    renderFacts();
-    toast(state.err === 'mixed' ? '被浏览器拦截' : '未发现设备', state.err === 'mixed' ? 'HTTPS 页面无法访问 HTTP' : '请确认同一 WiFi', 'warn');
-  }
-}
-
 netPill.addEventListener('click', openSheet);
-$('sheetClose').addEventListener('click', closeSheet);
+sheetClose.addEventListener('click', closeSheet);
 scrim.addEventListener('click', closeSheet);
 addEventListener('keydown', event => {
   if (event.key === 'Escape' && sheet.classList.contains('open')) closeSheet();
 });
 
 saveBtn.addEventListener('click', async () => {
-  const value = normalizeBase(baseInput.value);
-  if (!value) {
-    toast('地址不能为空', '例如 http://mj.local:48733', 'warn');
-    return;
-  }
-  state.base = value;
-  baseInput.value = value;
-  store.set('mj.base', value);
+  const host = normalizeHost(hostInput.value);
+  state.host = host;
+  saveHost(host);
+  hostInput.value = host;
   state.online = null;
   lastKey = '';
-  lastFacts = '';
   render();
-  await testConnection();
+  await retry();
+  renderDiag();
 });
 
-testBtn.addEventListener('click', testConnection);
-
-demoToggle.addEventListener('change', () => {
-  state.demo = demoToggle.checked;
-  store.set('mj.demo', state.demo ? '1' : '0');
-  state.mon = 0;
-  state.online = state.demo ? true : null;
-  state.err = '';
-  lastKey = '';
-  lastFacts = '';
-  render();
-  renderFacts();
+hostInput.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    saveBtn.click();
+  }
 });
 
 /* ---------- 启动 ---------- */
 
 async function boot() {
+  state.host = loadHost();
   const faces = await makeCardFaces({ logoUrl: 'assets/logo.png', ...CARD });
 
   lanyard = createLanyard(stage, {
@@ -431,7 +375,7 @@ async function boot() {
     cardColor: '#fffdf9',
     imageFit: 'cover',
     orientation: 'portrait',
-    finish: PARAMS.get('finish') || 'satin',
+    finish: 'satin',
     cornerRadius: 0.34,
     size: 0.6,
     anchor: 'center',
@@ -447,21 +391,18 @@ async function boot() {
     intro: true
   });
 
+  await readPermission();
   render();
   poll();
 
   setInterval(() => {
-    if (state.demo) {
-      const left = Math.max(0, demoUntil - performance.now());
-      state.mon = left > 0 ? 2 : 0;
-      state.zanshi = left;
-      state.zAt = performance.now();
-    }
-    if ((state.online || state.demo) && state.mon === 2) render();
+    if (state.online && state.mon === 2) render();
   }, 250);
 
-  const noSW = new URLSearchParams(location.search).has('nosw');
-  if (!noSW && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  if (
+    'serviceWorker' in navigator &&
+    (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }

@@ -40,27 +40,17 @@
 </div>
 
 <div class="scrim" id="scrim"></div>
-<section class="sheet" id="sheet" aria-hidden="true" aria-label="设备连接设置">
+<section class="sheet" id="sheet" aria-hidden="true" aria-label="设备地址">
   <div class="sheetHead">
-    <h2>设备连接</h2>
+    <h2>设备地址</h2>
     <button type="button" id="sheetClose">完成</button>
   </div>
-  <label class="field">
-    <span class="cap">ESP32 地址</span>
-    <input class="input" id="baseInput" type="text" inputmode="url" autocomplete="off"
-           autocapitalize="off" spellcheck="false" placeholder="http://mj.local:48733">
-  </label>
-  <div class="row">
-    <button class="btn primary" id="saveBtn" type="button">保存并测试</button>
-    <button class="btn ghost" id="testBtn" type="button">仅测试</button>
-  </div>
-  <div class="facts" id="facts"></div>
-  <label class="switch">
-    <input type="checkbox" id="demoToggle">
-    <span class="track"></span>
-    演示模式（不连接设备，仅体验交互）
-  </label>
-  <p class="note" id="noteText"></p>
+  <input class="input" id="hostInput" type="text" inputmode="url" autocomplete="off"
+         autocapitalize="off" spellcheck="false" placeholder="192.168.1.50 或 mj.local">
+  <p class="tip">端口固定 <b>48733</b>。手机常解析不到 mj.local，建议直接填设备 IP（串口会打印）。</p>
+  <p class="tip">安卓 Chrome 首次会询问“本地网络”，请选择允许；iPhone 的 Safari 会拦截 HTTPS→HTTP。</p>
+  <button class="btn" id="saveBtn" type="button">保存并重连</button>
+  <div class="diag" id="diag"></div>
 </section>
 
 <noscript><div class="noscript">请开启 JavaScript 以使用门禁控制。</div></noscript>
