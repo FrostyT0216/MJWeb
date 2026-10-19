@@ -54,6 +54,8 @@ export function createBubbleMenu({
   nav.append(logoBubble, toggle);
   mount.appendChild(nav);
 
+  toggle.addEventListener('click', handleToggle);
+
   const overlay = document.createElement('div');
   overlay.className = 'bubble-menu-items fixed';
   overlay.setAttribute('aria-hidden', 'true');
