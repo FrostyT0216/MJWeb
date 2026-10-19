@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#17110e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="天马门禁">
+<meta name="description" content="天马创新 WiFi 门禁 · 下拉工牌开门">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>天马门禁</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{"imports":{"three":"./vendor/three.module.min.js"}}
+</script>
+</head>
+<body>
+<div class="stage" id="stage" aria-label="天马创新门禁工牌"></div>
+
+<header class="bar">
+  <div class="brand"><b>天马创新</b><span>门禁</span></div>
+  <button class="pill" id="netPill" type="button" aria-label="设备连接设置">
+    <i></i><span id="netText">连接中</span>
+  </button>
+</header>
+
+<div class="bottom">
+  <div class="meter" id="meter"><i id="meterFill"></i></div>
+  <div class="state" id="stateWrap"><span class="dot"></span><b id="stateText">正在连接</b></div>
+  <div class="hint" id="hintText">下拉工牌开门 · 点击翻面</div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg></span>
+  <b id="toastText">已开门</b><em id="toastSub"></em>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" aria-hidden="true" aria-label="设备连接设置">
+  <div class="sheetHead">
+    <h2>设备连接</h2>
+    <button type="button" id="sheetClose">完成</button>
+  </div>
+  <label class="field">
+    <span class="cap">ESP32 地址</span>
+    <input class="input" id="baseInput" type="text" inputmode="url" autocomplete="off"
+           autocapitalize="off" spellcheck="false" placeholder="http://mj.local:48733">
+  </label>
+  <div class="row">
+    <button class="btn primary" id="saveBtn" type="button">保存并测试</button>
+    <button class="btn ghost" id="testBtn" type="button">仅测试</button>
+  </div>
+  <div class="facts" id="facts"></div>
+  <label class="switch">
+    <input type="checkbox" id="demoToggle">
+    <span class="track"></span>
+    演示模式（不连接设备，仅体验交互）
+  </label>
+  <p class="note" id="noteText"></p>
+</section>
+
+<noscript><div class="noscript">请开启 JavaScript 以使用门禁控制。</div></noscript>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
