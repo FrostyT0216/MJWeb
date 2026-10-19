@@ -45,11 +45,16 @@
     <h2>设备地址</h2>
     <button type="button" id="sheetClose">完成</button>
   </div>
-  <input class="input" id="hostInput" type="text" inputmode="url" autocomplete="off"
-         autocapitalize="off" spellcheck="false" placeholder="192.168.1.50 或 mj.local">
-  <p class="tip">端口固定 <b>48733</b>。手机常解析不到 mj.local，建议直接填设备 IP（串口会打印）。</p>
-  <p class="tip">安卓 Chrome 首次会询问“本地网络”，请选择允许；iPhone 的 Safari 会拦截 HTTPS→HTTP。</p>
+  <label class="cap">远程地址 · HTTPS 隧道（可留空）</label>
+  <input class="input" id="remoteInput" type="text" inputmode="url" autocomplete="off"
+         autocapitalize="off" spellcheck="false" placeholder="https://mj-api.frospon.top">
+  <label class="cap">局域网地址 · 端口固定 48733</label>
+  <input class="input" id="localInput" type="text" inputmode="url" autocomplete="off"
+         autocapitalize="off" spellcheck="false" placeholder="192.168.31.216">
+  <p class="tip">断网时自动改用局域网地址；iPhone 上局域网可能被拦截，用下面的「设备自带页」直接开门。</p>
   <button class="btn" id="saveBtn" type="button">保存并重连</button>
+  <button class="linkBtn" id="testBtn" type="button">在新窗口打开设备 /status 测试</button>
+  <button class="linkBtn" id="pageBtn" type="button">打开设备自带页（断网可用）</button>
   <div class="diag" id="diag"></div>
 </section>
 

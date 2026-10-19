@@ -22,15 +22,20 @@ const toastSub = $('toastSub');
 const tickEl = toastEl.querySelector('.tick');
 const scrim = $('scrim');
 const sheet = $('sheet');
-const hostInput = $('hostInput');
+const remoteInput = $('remoteInput');
+const localInput = $('localInput');
 const saveBtn = $('saveBtn');
 const sheetClose = $('sheetClose');
 const diag = $('diag');
+const testBtn = $('testBtn');
+const pageBtn = $('pageBtn');
 
 const CARD = { name: '小马', id: '0000' };
 
 const DEVICE_PORT = 48733;
-const HOST_KEY = 'mj.host';
+const REMOTE_KEY = 'mj.remote';
+const LOCAL_KEY = 'mj.local';
+const LEGACY_KEY = 'mj.host';
 
 const CHECK =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>';
@@ -38,7 +43,10 @@ const BANG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 6.5v7.2"/><circle cx="12" cy="18" r="1.1" fill="currentColor" stroke="none"/></svg>';
 
 const state = {
-  host: 'mj.local',
+  remote: '',
+  local: 'mj.local',
+  active: '',
+  remoteDown: 0,
   online: null,
   err: '',
   perm: 'unknown',
@@ -56,31 +64,65 @@ let guardUntil = 0;
 let toastTimer = 0;
 let lastKey = '';
 
+function localBase() {
+  return `https://${state.local}:${DEVICE_PORT}`;
+}
+
+// 依次尝试：远程（https 隧道）→ 局域网；远程失败后 30 秒内先走局域网
+function bases() {
+  if (location.port === String(DEVICE_PORT)) return [location.origin];
+  const list = [];
+  if (state.remote && performance.now() >= state.remoteDown) list.push(state.remote);
+  list.push(localBase());
+  return list;
+}
+
 function deviceBase() {
-  if (location.port === String(DEVICE_PORT)) return location.origin;
-  return `http://${state.host}:${DEVICE_PORT}`;
+  return state.active || bases()[0] || '';
 }
 
-function normalizeHost(value) {
-  let v = String(value || '').trim();
-  v = v.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
-  return v || 'mj.local';
+function normalizeLocal(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 'mj.local';
+  return raw.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/:\d+$/, '') || 'mj.local';
 }
 
-function loadHost() {
+function normalizeRemote(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   try {
-    return normalizeHost(localStorage.getItem(HOST_KEY) || 'mj.local');
+    return new URL(url).origin;
   } catch {
-    return 'mj.local';
+    return '';
   }
 }
 
-function saveHost(value) {
+function loadTargets() {
   try {
-    localStorage.setItem(HOST_KEY, value);
+    const remote = normalizeRemote(localStorage.getItem(REMOTE_KEY) || '');
+    const local = normalizeLocal(localStorage.getItem(LOCAL_KEY) || '');
+    if (remote || local) return { remote, local: local || 'mj.local' };
+
+    const legacy = localStorage.getItem(LEGACY_KEY) || '';
+    if (/^https?:\/\//i.test(legacy)) return { remote: normalizeRemote(legacy), local: 'mj.local' };
+    return { remote: '', local: normalizeLocal(legacy) || 'mj.local' };
+  } catch {
+    return { remote: '', local: 'mj.local' };
+  }
+}
+
+function saveTargets() {
+  try {
+    localStorage.setItem(REMOTE_KEY, state.remote);
+    localStorage.setItem(LOCAL_KEY, state.local);
   } catch {
     /* 隐私模式下忽略 */
   }
+}
+
+function esc(value) {
+  return String(value).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
 }
 
 function leftMs() {
@@ -163,6 +205,7 @@ function renderDiag() {
   const page = location.protocol === 'https:' ? 'HTTPS' : location.protocol === 'http:' ? 'HTTP' : '本地文件';
 
   diag.innerHTML =
+    `<span>接口</span><b>${esc(deviceBase())}</b>` +
     `<span>设备</span><b>${online}</b>` +
     `<span>页面</span><b>${page}</b>` +
     `<span>本地网络权限</span><b class="${state.perm === 'denied' ? 'bad' : ''}">${permText}</b>`;
@@ -173,6 +216,10 @@ function renderMeter() {
 }
 
 function toast(title, sub, kind) {
+  if (sheet.classList.contains('open')) {
+    renderDiag();
+    return;
+  }
   toastText.textContent = title;
   toastSub.textContent = sub || '';
   tickEl.innerHTML = kind === 'warn' || kind === 'err' ? BANG : CHECK;
@@ -183,23 +230,39 @@ function toast(title, sub, kind) {
 
 /* ---------- 设备 ---------- */
 
-function getJSON(path, ms) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms || 3500);
-  return fetch(deviceBase() + path, { cache: 'no-store', signal: ctrl.signal })
-    .then(res => {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    })
-    .finally(() => clearTimeout(timer));
+async function request(path, ms) {
+  const list = bases();
+  let last = new Error('offline');
+
+  for (const base of list) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms || 2800);
+    try {
+      const res = await fetch(base + path, { cache: 'no-store', signal: ctrl.signal });
+      if (res.status >= 500) {
+        last = new Error('HTTP ' + res.status);
+        if (base === state.remote) state.remoteDown = performance.now() + 30000;
+        continue;
+      }
+      state.active = base;
+      if (base === state.remote) state.remoteDown = 0;
+      return res;
+    } catch (err) {
+      last = err;
+      if (base === state.remote) state.remoteDown = performance.now() + 30000;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  state.active = '';
+  throw last;
 }
 
-function send(path, ms) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms || 4000);
-  return fetch(deviceBase() + path, { cache: 'no-store', signal: ctrl.signal }).finally(() =>
-    clearTimeout(timer)
-  );
+async function getJSON(path, ms) {
+  const res = await request(path, ms);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
 }
 
 function applyStatus(j) {
@@ -258,7 +321,7 @@ async function openDoor() {
 
   state.busy = true;
   try {
-    const res = await send('/open', 4000);
+    const res = await request('/open', 4000);
     if (res.status === 409) {
       toast('门正在动作', '请稍候再试', 'warn');
       return;
@@ -323,7 +386,8 @@ addEventListener('pointercancel', endPull);
 /* ---------- 地址面板 ---------- */
 
 function openSheet() {
-  hostInput.value = state.host;
+  remoteInput.value = state.remote;
+  localInput.value = state.local;
   scrim.classList.add('show');
   sheet.classList.add('open');
   sheet.setAttribute('aria-hidden', 'false');
@@ -344,10 +408,13 @@ addEventListener('keydown', event => {
 });
 
 saveBtn.addEventListener('click', async () => {
-  const host = normalizeHost(hostInput.value);
-  state.host = host;
-  saveHost(host);
-  hostInput.value = host;
+  state.remote = normalizeRemote(remoteInput.value);
+  state.local = normalizeLocal(localInput.value);
+  state.remoteDown = 0;
+  state.active = '';
+  saveTargets();
+  remoteInput.value = state.remote;
+  localInput.value = state.local;
   state.online = null;
   lastKey = '';
   render();
@@ -355,17 +422,31 @@ saveBtn.addEventListener('click', async () => {
   renderDiag();
 });
 
-hostInput.addEventListener('keydown', event => {
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    saveBtn.click();
-  }
+testBtn.addEventListener('click', () => {
+  // 顶层导航不受混合内容限制，可用来判断「网络通不通 / IP 对不对」
+  window.open(deviceBase() + '/status', '_blank', 'noopener');
+});
+
+pageBtn.addEventListener('click', () => {
+  // 设备自带页走 HTTP，断网也能开门（顶层导航不受混合内容限制）
+  window.open(localBase() + '/', '_blank', 'noopener');
+});
+
+[remoteInput, localInput].forEach(input => {
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveBtn.click();
+    }
+  });
 });
 
 /* ---------- 启动 ---------- */
 
 async function boot() {
-  state.host = loadHost();
+  const targets = loadTargets();
+  state.remote = targets.remote;
+  state.local = targets.local;
   const faces = await makeCardFaces({ logoUrl: 'assets/logo.png', ...CARD });
 
   lanyard = createLanyard(stage, {
