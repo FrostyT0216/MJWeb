@@ -51,15 +51,29 @@
   <label class="cap">局域网地址 · 端口固定 48733</label>
   <input class="input" id="localInput" type="text" inputmode="url" autocomplete="off"
          autocapitalize="off" spellcheck="false" placeholder="192.168.31.216">
-  <p class="tip">断网时自动改用局域网地址；iPhone 上局域网可能被拦截，用下面的「设备自带页」直接开门。</p>
+  <p class="tip">断网时自动改用局域网地址；iPhone 上局域网可能被拦截，连接后下拉工牌开门。</p>
   <button class="btn" id="saveBtn" type="button">保存并重连</button>
   <button class="linkBtn" id="testBtn" type="button">在新窗口打开设备 /status 测试</button>
-  <button class="linkBtn" id="pageBtn" type="button">打开设备自带页（断网可用）</button>
   <div class="diag" id="diag"></div>
+</section>
+
+<section class="sheet" id="lingSheet" aria-hidden="true" aria-label="切换工牌">
+  <div class="sheetHead">
+    <h2>切换工牌</h2>
+    <button type="button" id="lingClose">完成</button>
+  </div>
+  <label class="cap">当前工牌</label>
+  <p class="tip" id="lingNow">小马 · 0000</p>
+  <label class="cap">工牌密令</label>
+  <input class="input" id="lingInput" type="text" autocomplete="off"
+         autocapitalize="off" spellcheck="false" placeholder="8 位密令">
+  <p class="tip">密令由设备端验证，仅有效密令可开门；验证通过后需成功开门一次才显示姓名与工号。</p>
+  <button class="btn" id="lingSave" type="button">验证并切换</button>
 </section>
 
 <noscript><div class="noscript">请开启 JavaScript 以使用门禁控制。</div></noscript>
 
+<script src="vendor/gsap.min.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

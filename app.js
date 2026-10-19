@@ -2,9 +2,12 @@
  * app.js · 天马门禁 WebApp
  * 点击工牌翻面，下拉工牌开门。前端在 GitHub Pages，设备只提供 JSON 接口。
  * 端口固定 48733；主机可填 mj.local 或设备 IP（手机建议填 IP）。
+ * 密令流程：默认显示未授权小马工牌；填密令经设备验证后切换工牌（先显"待检测"），
+ * 成功开门一次后才显示真实姓名与工号；/open 服务端再次校验密令。
  */
 
 import { createLanyard } from './lanyard.js';
+import { createBubbleMenu } from './bubble_menu.js';
 import { makeCardFaces, makeStrapImage } from './faces.js';
 
 const $ = id => document.getElementById(id);
@@ -26,16 +29,19 @@ const remoteInput = $('remoteInput');
 const localInput = $('localInput');
 const saveBtn = $('saveBtn');
 const sheetClose = $('sheetClose');
+const lingSheet = $('lingSheet');
+const lingClose = $('lingClose');
+const lingInput = $('lingInput');
+const lingSave = $('lingSave');
+const lingNow = $('lingNow');
 const diag = $('diag');
 const testBtn = $('testBtn');
-const pageBtn = $('pageBtn');
-
-const CARD = { name: '小马', id: '0000' };
 
 const DEVICE_PORT = 48733;
 const REMOTE_KEY = 'mj.remote';
 const LOCAL_KEY = 'mj.local';
 const LEGACY_KEY = 'mj.host';
+const AIKOTOBA_KEY = 'mj.aikotoba';
 
 const CHECK =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>';
@@ -55,7 +61,8 @@ const state = {
   yanshi: 10000,
   zAt: 0,
   busy: false,
-  pull: 0
+  pull: 0,
+  badge: null // {ling, name, id, revealed}；null = 未授权小马工牌
 };
 
 let lanyard = null;
@@ -121,6 +128,64 @@ function saveTargets() {
   }
 }
 
+/* ---------- 工牌（密令） ---------- */
+
+function loadBadge() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(AIKOTOBA_KEY) || 'null');
+    if (raw && typeof raw.ling === 'string' && raw.ling && typeof raw.id === 'string') {
+      return { ling: raw.ling, name: raw.name || '小马', id: raw.id, revealed: !!raw.revealed };
+    }
+  } catch {
+    /* 存档损坏按未授权处理 */
+  }
+  return null;
+}
+
+function saveBadge() {
+  try {
+    if (state.badge) localStorage.setItem(AIKOTOBA_KEY, JSON.stringify(state.badge));
+    else localStorage.removeItem(AIKOTOBA_KEY);
+  } catch {
+    /* 隐私模式下忽略 */
+  }
+}
+
+// 卡面实际渲染用的姓名/工号：未授权=小马0000；已验证未开门=待检测+遮蔽工号
+function displayBadge() {
+  if (!state.badge) return { name: '小马', id: '0000' };
+  return state.badge.revealed
+    ? { name: state.badge.name, id: state.badge.id }
+    : { name: '待检测', id: '****' };
+}
+
+async function rebuildLanyard() {
+  const faces = await makeCardFaces({ logoUrl: 'assets/logo.png', ...displayBadge() });
+  if (lanyard) lanyard.destroy();
+  lanyard = createLanyard(stage, {
+    frontImage: faces.front,
+    backImage: faces.back,
+    strapImage: makeStrapImage(),
+    cardColor: '#fffdf9',
+    imageFit: 'cover',
+    orientation: 'portrait',
+    finish: 'satin',
+    cornerRadius: 0.34,
+    size: 0.6,
+    anchor: 'center',
+    strapLength: 0.52,
+    strapColor: '#ef6c1a',
+    strapWidth: 0.62,
+    metal: 'gold',
+    gravity: 1,
+    damping: 0.52,
+    elasticity: 0.55,
+    breeze: 0.45,
+    interactive: true,
+    intro: true
+  });
+}
+
 function esc(value) {
   return String(value).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
 }
@@ -167,7 +232,7 @@ function render() {
   const open = online && state.mon === 2;
   const secs = open ? Math.max(1, Math.ceil(leftMs() / 1000)) : 0;
 
-  const key = [state.online, open, secs, state.pull > 0, state.pull >= 1, state.err, state.perm].join('|');
+  const key = [state.online, open, secs, state.pull > 0, state.pull >= 1, !!state.badge, state.err, state.perm].join('|');
   if (key !== lastKey) {
     lastKey = key;
 
@@ -184,15 +249,18 @@ function render() {
           : '设备未连接';
 
     let hint = '下拉工牌开门 · 点击翻面';
-    if (state.pull > 0) hint = state.pull >= 1 ? '松手开门' : '继续下拉';
-    else if (state.perm === 'denied') hint = '浏览器已禁用本地网络访问';
+    if (state.pull > 0) {
+      hint = !state.badge ? '未授权 · 请先填写密令' : state.pull >= 1 ? '松手开门' : '继续下拉';
+    } else if (!state.badge && online) {
+      hint = '未授权工牌 · 点顶部菜单填写密令';
+    } else if (state.perm === 'denied') hint = '浏览器已禁用本地网络访问';
     else if (state.online === false) {
       hint = location.protocol === 'https:' ? '连不上设备 · 点右上角填 IP' : '点右上角重试';
       if (cellular()) hint = '请先连接门禁所在 WiFi';
     }
 
     hintText.textContent = hint;
-    hintText.classList.toggle('ready', state.pull >= 1);
+    hintText.classList.toggle('ready', state.pull >= 1 && !!state.badge);
   }
 
   if (sheet.classList.contains('open')) renderDiag();
@@ -216,8 +284,8 @@ function renderMeter() {
 }
 
 function toast(title, sub, kind) {
-  if (sheet.classList.contains('open')) {
-    renderDiag();
+  if (sheet.classList.contains('open') || lingSheet.classList.contains('open')) {
+    if (sheet.classList.contains('open')) renderDiag();
     return;
   }
   toastText.textContent = title;
@@ -314,6 +382,10 @@ async function retry() {
 
 async function openDoor() {
   if (state.busy) return;
+  if (!state.badge) {
+    toast('未授权工牌', '点顶部菜单填写密令', 'warn');
+    return;
+  }
   if (state.online !== true) {
     toast('设备未连接', '点右上角检查设备 IP', 'warn');
     return;
@@ -321,7 +393,17 @@ async function openDoor() {
 
   state.busy = true;
   try {
-    const res = await request('/open', 4000);
+    const res = await request('/open?ling=' + encodeURIComponent(state.badge.ling), 4000);
+    if (res.status === 401) {
+      // 密令已失效：退回未授权小马工牌
+      state.badge = null;
+      saveBadge();
+      lastKey = '';
+      render();
+      await rebuildLanyard();
+      toast('密令已失效', '请重新填写密令', 'err');
+      return;
+    }
     if (res.status === 409) {
       toast('门正在动作', '请稍候再试', 'warn');
       return;
@@ -334,6 +416,12 @@ async function openDoor() {
     render();
     haptic([12, 42, 18]);
     toast('已开门', '');
+    // 首次成功开门：解除"待检测"，显示真实姓名与工号
+    if (!state.badge.revealed) {
+      state.badge.revealed = true;
+      saveBadge();
+      rebuildLanyard().catch(() => {});
+    }
   } catch {
     toast('开门失败', '设备没有响应', 'err');
     state.online = false;
@@ -383,7 +471,7 @@ function endPull(event) {
 addEventListener('pointerup', endPull);
 addEventListener('pointercancel', endPull);
 
-/* ---------- 地址面板 ---------- */
+/* ---------- 弹窗：地址 / 切换工牌 ---------- */
 
 function openSheet() {
   remoteInput.value = state.remote;
@@ -394,17 +482,37 @@ function openSheet() {
   renderDiag();
 }
 
-function closeSheet() {
+function closeSheets() {
   scrim.classList.remove('show');
   sheet.classList.remove('open');
   sheet.setAttribute('aria-hidden', 'true');
+  lingSheet.classList.remove('open');
+  lingSheet.setAttribute('aria-hidden', 'true');
+}
+
+function renderLingSheet() {
+  const b = state.badge;
+  lingNow.textContent = !b
+    ? '小马 · 0000（未授权，不可开门）'
+    : b.revealed
+      ? `${b.name} · ${b.id}`
+      : '待检测 · ****（验证通过，待首次开门）';
+}
+
+function openLingSheet() {
+  lingInput.value = '';
+  renderLingSheet();
+  scrim.classList.add('show');
+  lingSheet.classList.add('open');
+  lingSheet.setAttribute('aria-hidden', 'false');
 }
 
 netPill.addEventListener('click', openSheet);
-sheetClose.addEventListener('click', closeSheet);
-scrim.addEventListener('click', closeSheet);
+sheetClose.addEventListener('click', closeSheets);
+lingClose.addEventListener('click', closeSheets);
+scrim.addEventListener('click', closeSheets);
 addEventListener('keydown', event => {
-  if (event.key === 'Escape' && sheet.classList.contains('open')) closeSheet();
+  if (event.key === 'Escape') closeSheets();
 });
 
 saveBtn.addEventListener('click', async () => {
@@ -427,11 +535,6 @@ testBtn.addEventListener('click', () => {
   window.open(deviceBase() + '/status', '_blank', 'noopener');
 });
 
-pageBtn.addEventListener('click', () => {
-  // 设备自带页走 HTTP，断网也能开门（顶层导航不受混合内容限制）
-  window.open(localBase() + '/', '_blank', 'noopener');
-});
-
 [remoteInput, localInput].forEach(input => {
   input.addEventListener('keydown', event => {
     if (event.key === 'Enter') {
@@ -441,36 +544,75 @@ pageBtn.addEventListener('click', () => {
   });
 });
 
+lingSave.addEventListener('click', async () => {
+  const ling = lingInput.value.trim();
+  if (!ling) {
+    toast('请输入密令', '', 'warn');
+    return;
+  }
+  if (lingSave.disabled) return;
+  lingSave.disabled = true;
+
+  try {
+    const res = await request('/aikotoba?ling=' + encodeURIComponent(ling), 5000);
+    if (res.status === 401) {
+      toast('密令无效', '请核对后重试', 'warn');
+      haptic(60);
+      return;
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    if (!j || j.ok !== 1 || !j.id) throw new Error('bad reply');
+
+    state.badge = { ling, name: j.name || '小马', id: j.id, revealed: false };
+    saveBadge();
+    lastKey = '';
+    render();
+    await rebuildLanyard();
+    closeSheets();
+    toast('工牌已切换', '开门一次后显示姓名工号');
+  } catch {
+    toast('验证失败', '设备没有响应', 'err');
+  } finally {
+    lingSave.disabled = false;
+  }
+});
+
+lingInput.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    lingSave.click();
+  }
+});
+
 /* ---------- 启动 ---------- */
 
 async function boot() {
   const targets = loadTargets();
   state.remote = targets.remote;
   state.local = targets.local;
-  const faces = await makeCardFaces({ logoUrl: 'assets/logo.png', ...CARD });
+  state.badge = loadBadge();
 
-  lanyard = createLanyard(stage, {
-    frontImage: faces.front,
-    backImage: faces.back,
-    strapImage: makeStrapImage(),
-    cardColor: '#fffdf9',
-    imageFit: 'cover',
-    orientation: 'portrait',
-    finish: 'satin',
-    cornerRadius: 0.34,
-    size: 0.6,
-    anchor: 'center',
-    strapLength: 0.52,
-    strapColor: '#ef6c1a',
-    strapWidth: 0.62,
-    metal: 'gold',
-    gravity: 1,
-    damping: 0.52,
-    elasticity: 0.55,
-    breeze: 0.45,
-    interactive: true,
-    intro: true
+  createBubbleMenu({
+    mount: document.body,
+    logo: 'assets/logo.png',
+    items: [
+      {
+        label: '切换工牌',
+        rotation: -6,
+        hoverStyles: { bgColor: '#f2762a', textColor: '#ffffff' },
+        onClick: openLingSheet
+      },
+      {
+        label: '设备地址',
+        rotation: 6,
+        hoverStyles: { bgColor: '#2b1a0e', textColor: '#fff8f0' },
+        onClick: openSheet
+      }
+    ]
   });
+
+  await rebuildLanyard();
 
   await readPermission();
   render();
