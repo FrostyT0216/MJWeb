@@ -167,7 +167,7 @@ async function rebuildLanyard() {
     cardColor: '#fffdf9',
     imageFit: 'cover',
     orientation: 'portrait',
-    finish: 'satin',
+    finish: 'reflective',
     cornerRadius: 0.34,
     size: 0.6,
     anchor: 'center',

@@ -25,7 +25,8 @@ const FINISHES = {
   matte: { roughness: 0.85, metalness: 0, clearcoat: 0, clearcoatRoughness: 0.6, foil: 0, anisotropy: 0 },
   holographic: { roughness: 0.3, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04, foil: 1, anisotropy: 0 },
   metallic: { roughness: 0.36, metalness: 0.75, clearcoat: 0.5, clearcoatRoughness: 0.18, foil: 0, anisotropy: 0.7 },
-  satin: { roughness: 0.62, metalness: 0, clearcoat: 0.16, clearcoatRoughness: 0.42, foil: 0, anisotropy: 0 }
+  satin: { roughness: 0.62, metalness: 0, clearcoat: 0.16, clearcoatRoughness: 0.42, foil: 0, anisotropy: 0 },
+  reflective: { roughness: 0.52, metalness: 0.14, clearcoat: 0.6, clearcoatRoughness: 0.22, foil: 0, anisotropy: 0, reflect: 1 }
 };
 
 const BAND_COLUMNS = [0, 0.07, 0.93, 1];
@@ -142,6 +143,31 @@ const METALS = {
   gold: { color: '#e4b965', roughness: 0.2 },
   graphite: { color: '#4d4f55', roughness: 0.28 }
 };
+
+// 反光卡层：借用 foil 注入的 varyings（vFoilUv/vFoilY）与光源方向（foilKey/foilTop）
+const REFLECT_FRAGMENT_HEAD = `
+uniform float reflectStrength;
+`;
+
+const REFLECT_FRAGMENT_BODY = `
+if (reflectStrength > 0.0) {
+  vec3 rView = normalize(vViewPosition);
+  vec3 rNormal = normalize(normal);
+  vec3 rKey = normalize(foilKey);
+  vec3 rTop = normalize(foilTop);
+  vec3 rHalfK = normalize(rKey + rView);
+  vec3 rHalfT = normalize(rTop + rView);
+  float rStretch = 1.0 + 2.5 * abs(dot(rHalfK, vFoilY));
+  float rBand = pow(max(dot(rNormal, rHalfK), 0.0), 16.0 / rStretch) * 0.85
+              + pow(max(dot(rNormal, rHalfT), 0.0), 26.0) * 0.3;
+  vec2 rBorder = min(vFoilUv, 1.0 - vFoilUv);
+  float rRim = 1.0 - smoothstep(0.0, 0.018, min(rBorder.x, rBorder.y));
+  float rInk = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  float rMask = mix(0.3, 1.0, smoothstep(0.04, 0.45, rInk));
+  float rFacing = clamp(dot(rNormal, rView), 0.0, 1.0);
+  outgoingLight += vec3(1.0) * (rBand * 0.30 + rRim * 0.12) * reflectStrength * rMask * (0.35 + 0.65 * rFacing);
+}
+`;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const mix = (a, b, t) => a + (b - a) * t;
@@ -805,6 +831,14 @@ export function createLanyard(container, options = {}) {
         .replace('#include <common>', `#include <common>\n${FOIL_FRAGMENT_HEAD}`)
         .replace('#include <opaque_fragment>', `${FOIL_FRAGMENT_BODY}\n#include <opaque_fragment>`);
     };
+    const reflectUniforms = { reflectStrength: { value: 0 } };
+    const injectCardShader = shader => {
+      injectFoil(shader);
+      Object.assign(shader.uniforms, reflectUniforms);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\n${REFLECT_FRAGMENT_HEAD}`)
+        .replace('#include <opaque_fragment>', `${REFLECT_FRAGMENT_BODY}\n#include <opaque_fragment>`);
+    };
 
     const frontMaterial = new THREE.MeshPhysicalMaterial({
       map: frontTexture,
@@ -818,8 +852,8 @@ export function createLanyard(container, options = {}) {
       normalScale: new THREE.Vector2(0.06, 0.06),
       envMapIntensity: 0.45
     });
-    frontMaterial.onBeforeCompile = injectFoil;
-    backMaterial.onBeforeCompile = injectFoil;
+    frontMaterial.onBeforeCompile = injectCardShader;
+    backMaterial.onBeforeCompile = injectCardShader;
     const edgeMaterial = new THREE.MeshPhysicalMaterial({ envMapIntensity: 0.5 });
     const metalMaterial = new THREE.MeshStandardMaterial({ metalness: 1 });
     const bandMaterial = new THREE.MeshPhysicalMaterial({
@@ -987,8 +1021,10 @@ export function createLanyard(container, options = {}) {
         material.clearcoat = finish.clearcoat;
         material.clearcoatRoughness = finish.clearcoatRoughness;
         material.anisotropy = finish.anisotropy;
+        material.envMapIntensity = 0.45 + 0.35 * (finish.reflect || 0);
       });
       foilUniforms.foilStrength.value = finish.foil;
+      reflectUniforms.reflectStrength.value = finish.reflect || 0;
       foilUniforms.foilAspect.value = layout.height / layout.width;
       edgeMaterial.color.setRGB(card[0] * 0.92, card[1] * 0.92, card[2] * 0.92, THREE.SRGBColorSpace);
       edgeMaterial.roughness = Math.min(finish.roughness, 0.35);
