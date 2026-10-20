@@ -3,7 +3,7 @@
  * 只缓存应用外壳；设备接口 (/status /open /ping) 一律不走缓存。
  */
 
-const CACHE = 'mj-v11';
+const CACHE = 'mj-v12';
 const SHELL = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const SHELL = [
   './vendor/three.module.min.js',
   './vendor/gsap.min.js',
   './assets/logo.png',
+  './assets/sign-p216.png',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

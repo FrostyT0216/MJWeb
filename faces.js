@@ -9,6 +9,9 @@ const FONT = '"PingFang SC","HarmonyOS Sans SC","MiSans","Source Han Sans SC","M
 const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace';
 const ORANGE = '#e8661a';
 
+// 特殊姓名 -> 艺术签名图（P216 为主人签名）
+const SIGNATURES = { P216: 'assets/sign-p216.png' };
+
 const loadImage = src =>
   new Promise(resolve => {
     const img = new Image();
@@ -52,7 +55,7 @@ const spacedWidth = (ctx, text, spacing) => {
   return widths.reduce((a, b) => a + b, 0) + spacing * Math.max(0, chars.length - 1);
 };
 
-function drawFront(ctx, logo, name, id) {
+function drawFront(ctx, logo, name, id, sig) {
   const paper = ctx.createLinearGradient(0, 0, W * 0.35, H);
   paper.addColorStop(0, '#ffffff');
   paper.addColorStop(0.5, '#fffdf9');
@@ -102,11 +105,17 @@ function drawFront(ctx, logo, name, id) {
   ctx.fillStyle = 'rgba(242,106,27,.14)';
   ctx.fill();
 
-  // 姓名
-  ctx.fillStyle = '#2b1a0e';
+  // 姓名（P216 用艺术签名图替代文字）
   ctx.textBaseline = 'alphabetic';
-  ctx.font = `600 150px ${FONT}`;
-  spaced(ctx, name, W / 2, 736, 14);
+  if (sig) {
+    const sh = 216;
+    const sw = (sig.width / sig.height) * sh;
+    ctx.drawImage(sig, (W - sw) / 2, 576, sw, sh);
+  } else {
+    ctx.fillStyle = '#2b1a0e';
+    ctx.font = `600 150px ${FONT}`;
+    spaced(ctx, name, W / 2, 736, 14);
+  }
 
   // 工号胶囊
   const label = '工号';
@@ -273,12 +282,15 @@ function drawBack(ctx, logo, id) {
 }
 
 export async function makeCardFaces({ logoUrl, name = '小马', id = '0000' }) {
-  const logo = await loadImage(logoUrl);
+  const [logo, sig] = await Promise.all([
+    loadImage(logoUrl),
+    SIGNATURES[name] ? loadImage(SIGNATURES[name]) : Promise.resolve(null)
+  ]);
   const front = document.createElement('canvas');
   const back = document.createElement('canvas');
   front.width = back.width = W;
   front.height = back.height = H;
-  drawFront(front.getContext('2d'), logo, name, id);
+  drawFront(front.getContext('2d'), logo, name, id, sig);
   drawBack(back.getContext('2d'), logo, id);
   return {
     front: front.toDataURL('image/png'),
