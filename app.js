@@ -179,6 +179,7 @@ async function rebuildLanyard() {
     damping: 0.52,
     elasticity: 0.55,
     breeze: 0.45,
+    tilt: true,
     interactive: true,
     intro: true
   });

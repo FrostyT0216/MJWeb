@@ -32,6 +32,7 @@ const FINISHES = {
 const BAND_COLUMNS = [0, 0.07, 0.93, 1];
 const BAND_BEND = [-0.12, -0.04, 0.04, 0.12];
 const FLIP_SPIN = 9;
+const TILT_ANGLE = 0.16;
 
 const FOIL_VERTEX_HEAD = `
 varying vec2 vFoilUv;
@@ -638,6 +639,9 @@ const stepSimulation = (sim, dt, physics, time) => {
   const { nodes, previous, velocities, body } = sim;
   const windX = physics.breeze * (Math.sin(time * 0.53) * 0.7 + Math.sin(time * 1.31 + 1.7) * 0.3) * 3;
   const windZ = physics.breeze * Math.sin(time * 0.37 + 0.6) * 2;
+  // 感应倾斜：重力矢量偏转，卡片自然侧倾（抓取时不生效）
+  const leanX = sim.grab ? 0 : physics.leanX || 0;
+  const leanZ = sim.grab ? 0 : physics.leanZ || 0;
   const grab = sim.grab;
   const pin = scratch.pin;
   const nodeDrag = Math.exp(-physics.nodeDrag * h);
@@ -648,8 +652,8 @@ const stepSimulation = (sim, dt, physics, time) => {
     for (let i = 1; i < JOINTS; i++) {
       const v = velocities[i];
       v.y -= physics.gravity * h;
-      v.x += windX * h;
-      v.z += windZ * h;
+      v.x += (windX + leanX) * h;
+      v.z += (windZ + leanZ) * h;
       previous[i].copy(nodes[i]);
       nodes[i].addScaledVector(v, h);
     }
@@ -680,8 +684,8 @@ const stepSimulation = (sim, dt, physics, time) => {
       body.angular.addScaledVector(up, (physics.twist * (sim.turn - sim.twist) - physics.twistDamping * spin) * h);
     }
     body.velocity.y -= physics.gravity * h;
-    body.velocity.x += windX * 0.35 * h;
-    body.velocity.z += windZ * 0.35 * h;
+    body.velocity.x += (windX * 0.35 + leanX) * h;
+    body.velocity.z += (windZ * 0.35 + leanZ) * h;
     body.position.addScaledVector(body.velocity, h);
     rotateBody(body.quaternion, scratch.f.copy(body.angular).multiplyScalar(h));
 
@@ -743,6 +747,7 @@ export function createLanyard(container, options = {}) {
   damping = 0.5,
   elasticity = 0.5,
   breeze = 0.5,
+  tilt = true,
   interactive = true,
   intro = true,
   className = '',
@@ -772,6 +777,7 @@ export function createLanyard(container, options = {}) {
     damping,
     elasticity,
     breeze,
+    tilt,
     interactive,
     intro
   };
@@ -1154,7 +1160,9 @@ export function createLanyard(container, options = {}) {
         twistDamping: 3,
         grip: 40,
         gripDamping: 6,
-        breeze: reducedMotion ? 0 : clamp(s.breeze, 0, 1)
+        breeze: reducedMotion ? 0 : clamp(s.breeze, 0, 1),
+        leanX: reducedMotion || !s.tilt ? 0 : Math.sin(tiltCur.x * TILT_ANGLE) * gravity,
+        leanZ: reducedMotion || !s.tilt ? 0 : Math.sin(tiltCur.y * TILT_ANGLE * 0.7) * gravity
       };
     };
 
@@ -1164,6 +1172,9 @@ export function createLanyard(container, options = {}) {
       const dt = Math.min(1 / 30, Math.max(1 / 240, (now - last) / 1000));
       last = now;
       time += dt;
+      const tiltEase = Math.min(1, dt * 3);
+      tiltCur.x += (tiltTarget.x - tiltCur.x) * tiltEase;
+      tiltCur.y += (tiltTarget.y - tiltCur.y) * tiltEase;
       const current = physics();
       stepSimulation(sim, dt, current, time);
       const body = sim.body;
@@ -1223,6 +1234,7 @@ export function createLanyard(container, options = {}) {
     };
 
     const onPointerDown = event => {
+      if (tiltEnabled()) enableSensor(); // iOS 姿态权限需用户手势触发
       if (!settingsRef.current.interactive || event.button > 0) return;
       toPointer(event);
       const hit = pickCard();
@@ -1278,6 +1290,53 @@ export function createLanyard(container, options = {}) {
     canvas.addEventListener('lostpointercapture', onPointerUp);
     canvas.addEventListener('touchstart', onTouchStart, { passive: false });
 
+    // 感应倾斜输入：PC 用鼠标位置，移动端用姿态传感器（iOS 需手势授权）
+    const tiltTarget = { x: 0, y: 0 };
+    const tiltCur = { x: 0, y: 0 };
+    let baseBeta = null;
+    let sensorRequested = false;
+    let sensorHooked = false;
+    const tiltEnabled = () => settingsRef.current.tilt && !reducedMotion;
+
+    const onTiltPointer = event => {
+      if (!tiltEnabled() || event.pointerType === 'touch' || sim.grab) return;
+      const x = clamp((event.clientX / window.innerWidth) * 2 - 1, -1, 1);
+      const y = clamp((event.clientY / window.innerHeight) * 2 - 1, -1, 1);
+      if (Math.abs(x - tiltTarget.x) < 0.01 && Math.abs(y - tiltTarget.y) < 0.01) return;
+      tiltTarget.x = x;
+      tiltTarget.y = y;
+      start();
+    };
+
+    const onDeviceOrientation = event => {
+      if (!tiltEnabled() || (event.beta == null && event.gamma == null)) return;
+      if (baseBeta === null) baseBeta = event.beta || 0;
+      const x = clamp((event.gamma || 0) / 25, -1, 1);
+      const y = clamp(((event.beta || 0) - baseBeta) / 25, -1, 1);
+      if (Math.abs(x - tiltTarget.x) < 0.02 && Math.abs(y - tiltTarget.y) < 0.02) return;
+      tiltTarget.x = x;
+      tiltTarget.y = y;
+      start();
+    };
+
+    const enableSensor = () => {
+      const deviceOrientation = window.DeviceOrientationEvent;
+      if (!deviceOrientation || sensorRequested) return;
+      sensorRequested = true;
+      if (typeof deviceOrientation.requestPermission === 'function') {
+        deviceOrientation.requestPermission().then(state => {
+          if (state === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation);
+          else sensorRequested = false; // 无手势被拒时允许下次点击重试
+        }).catch(() => { sensorRequested = false; });
+      } else {
+        sensorHooked = true;
+        window.addEventListener('deviceorientation', onDeviceOrientation);
+      }
+    };
+    if ((window.matchMedia?.('(pointer: coarse)').matches ?? false) && tiltEnabled()) enableSensor();
+
+    window.addEventListener('pointermove', onTiltPointer);
+
     const resize = () => {
       view.width = Math.max(1, container.clientWidth);
       view.height = Math.max(1, container.clientHeight);
@@ -1315,6 +1374,8 @@ export function createLanyard(container, options = {}) {
       canvas.removeEventListener('pointercancel', onPointerUp);
       canvas.removeEventListener('lostpointercapture', onPointerUp);
       canvas.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('pointermove', onTiltPointer);
+      window.removeEventListener('deviceorientation', onDeviceOrientation);
       [bodyMesh, frontMesh, backMesh, ring, clampMesh, eyelet, band].forEach(mesh => mesh.geometry?.dispose());
       [frontMaterial, backMaterial, edgeMaterial, metalMaterial, bandMaterial].forEach(material => material.dispose());
       [frontTexture, backTexture, strapTexture, grain, weave].forEach(texture => texture.dispose());
