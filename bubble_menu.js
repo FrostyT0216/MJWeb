@@ -1,18 +1,14 @@
 /*
  * bubble_menu.js · BubbleMenu 原生移植（React Bits，逻辑照抄参考实现）
- * 汉堡切换气泡（右下角），点击弹出 pill 列表（gsap 弹入动画）
- * 弹层背景 = GradientASCII 橙色光效（gradient_ascii.js）+ 毛玻璃 pill
+ * 汉堡切换气泡（右下角），点击弹出 pill 列表（gsap 弹入动画）+ 毛玻璃弹层
  * 依赖：全局 gsap（index.html 以普通 script 先于本模块加载 vendor/gsap.min.js）
  */
-
-import { createGradientASCII } from './gradient_ascii.js';
 
 const DEFAULT_ITEMS = [];
 
 export function createBubbleMenu({
   mount,
   items = DEFAULT_ITEMS,
-  gradient = {},
   menuBg = 'rgba(255,240,228,.14)',
   menuContentColor = '#ffe7d2',
   animationEase = 'back.out(1.5)',
@@ -90,13 +86,6 @@ export function createBubbleMenu({
   overlay.appendChild(list);
   mount.appendChild(overlay);
 
-  // 弹层背景：GradientASCII 光效（橙色系由调用方传入）；无 WebGL2 时组件自行降级为空
-  const bg = document.createElement('div');
-  bg.className = 'bubble-menu-bg';
-  bg.setAttribute('aria-hidden', 'true');
-  overlay.insertBefore(bg, list);
-  const gradientFx = createGradientASCII(bg, gradient);
-
   // 点空白（模糊背景）收起菜单；点 pill 不在此触发，由 pill 自身处理器负责
   overlay.addEventListener('click', event => {
     if (!event.target.closest('.pill-link')) handleToggle();
@@ -172,7 +161,6 @@ export function createBubbleMenu({
       if (isMenuOpen) handleToggle();
     },
     destroy() {
-      gradientFx.destroy();
       window.removeEventListener('resize', handleResize);
       nav.remove();
       overlay.remove();
