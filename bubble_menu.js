@@ -1,17 +1,20 @@
 /*
  * bubble_menu.js · BubbleMenu 原生移植（React Bits，逻辑照抄参考实现）
- * 中央 logo 气泡 + 汉堡切换气泡，点击弹出 pill 列表（gsap 弹入动画）
+ * 汉堡切换气泡（右下角），点击弹出 pill 列表（gsap 弹入动画）
+ * 弹层背景 = GradientASCII 橙色光效（gradient_ascii.js）+ 毛玻璃 pill
  * 依赖：全局 gsap（index.html 以普通 script 先于本模块加载 vendor/gsap.min.js）
  */
+
+import { createGradientASCII } from './gradient_ascii.js';
 
 const DEFAULT_ITEMS = [];
 
 export function createBubbleMenu({
   mount,
-  logo,
   items = DEFAULT_ITEMS,
-  menuBg = '#fff8f0',
-  menuContentColor = '#2b1a0e',
+  gradient = {},
+  menuBg = 'rgba(255,240,228,.14)',
+  menuContentColor = '#ffe7d2',
   animationEase = 'back.out(1.5)',
   animationDuration = 0.5,
   staggerDelay = 0.12
@@ -22,20 +25,6 @@ export function createBubbleMenu({
   const nav = document.createElement('nav');
   nav.className = 'bubble-menu fixed';
   nav.setAttribute('aria-label', 'Main navigation');
-
-  const logoBubble = document.createElement('div');
-  logoBubble.className = 'bubble logo-bubble';
-  logoBubble.setAttribute('aria-label', 'Logo');
-  logoBubble.style.background = menuBg;
-  if (typeof logo === 'string') {
-    const img = document.createElement('img');
-    img.src = logo;
-    img.alt = '';
-    img.className = 'bubble-logo';
-    logoBubble.appendChild(img);
-  } else if (logo) {
-    logoBubble.appendChild(logo);
-  }
 
   const toggle = document.createElement('button');
   toggle.type = 'button';
@@ -51,7 +40,7 @@ export function createBubbleMenu({
   line2.style.background = menuContentColor;
   toggle.append(line1, line2);
 
-  nav.append(logoBubble, toggle);
+  nav.append(toggle);
   mount.appendChild(nav);
 
   toggle.addEventListener('click', handleToggle);
@@ -100,6 +89,13 @@ export function createBubbleMenu({
 
   overlay.appendChild(list);
   mount.appendChild(overlay);
+
+  // 弹层背景：GradientASCII 光效（橙色系由调用方传入）；无 WebGL2 时组件自行降级为空
+  const bg = document.createElement('div');
+  bg.className = 'bubble-menu-bg';
+  bg.setAttribute('aria-hidden', 'true');
+  overlay.insertBefore(bg, list);
+  const gradientFx = createGradientASCII(bg, gradient);
 
   // 点空白（模糊背景）收起菜单；点 pill 不在此触发，由 pill 自身处理器负责
   overlay.addEventListener('click', event => {
@@ -176,6 +172,7 @@ export function createBubbleMenu({
       if (isMenuOpen) handleToggle();
     },
     destroy() {
+      gradientFx.destroy();
       window.removeEventListener('resize', handleResize);
       nav.remove();
       overlay.remove();

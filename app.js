@@ -2,9 +2,8 @@
  * app.js · 天马门禁 WebApp
  * 点击工牌翻面，下拉工牌开门。前端在 GitHub Pages，设备只提供 JSON 接口。
  * 端口固定 48733；主机可填 mj.local 或设备 IP（手机建议填 IP）。
- * 密令流程：默认显示未授权小马工牌；填密令经设备验证后切换工牌（先显"待检测"），
- * 成功开门
- * 一次后才显示真实姓名与工号；/open 服务端再次校验密令。
+ * 密令流程：默认显示未授权小马工牌；填密令经设备验证后直接切换为真实姓名工牌；
+ * /open 服务端再次校验密令，无效则退回未授权卡。
  */
 
 import { createLanyard } from './lanyard.js';
@@ -135,7 +134,7 @@ function loadBadge() {
   try {
     const raw = JSON.parse(localStorage.getItem(AIKOTOBA_KEY) || 'null');
     if (raw && typeof raw.ling === 'string' && raw.ling && typeof raw.id === 'string') {
-      return { ling: raw.ling, name: raw.name || '小马', id: raw.id, revealed: !!raw.revealed };
+      return { ling: raw.ling, name: raw.name || '小马', id: raw.id };
     }
   } catch {
     /* 存档损坏按未授权处理 */
@@ -152,12 +151,10 @@ function saveBadge() {
   }
 }
 
-// 卡面实际渲染用的姓名/工号：未授权=小马0000；已验证未开门=待检测+遮蔽工号
+// 卡面实际渲染用的姓名/工号：未授权=小马0000；验证通过即显示真实信息
 function displayBadge() {
   if (!state.badge) return { name: '小马', id: '0000' };
-  return state.badge.revealed
-    ? { name: state.badge.name, id: state.badge.id }
-    : { name: '待检测', id: '****' };
+  return { name: state.badge.name, id: state.badge.id };
 }
 
 async function rebuildLanyard() {
@@ -253,7 +250,7 @@ function render() {
     if (state.pull > 0) {
       hint = !state.badge ? '未授权 · 请先填写密令' : state.pull >= 1 ? '松手开门' : '继续下拉';
     } else if (!state.badge && online) {
-      hint = '未授权工牌 · 点顶部菜单填写密令';
+      hint = '未授权工牌 · 点右下角菜单填写密令';
     } else if (state.perm === 'denied') hint = '浏览器已禁用本地网络访问';
     else if (state.online === false) {
       hint = location.protocol === 'https:' ? '连不上设备 · 点右上角填 IP' : '点右上角重试';
@@ -384,7 +381,7 @@ async function retry() {
 async function openDoor() {
   if (state.busy) return;
   if (!state.badge) {
-    toast('未授权工牌', '点顶部菜单填写密令', 'warn');
+    toast('未授权工牌', '点右下角菜单填写密令', 'warn');
     return;
   }
   if (state.online !== true) {
@@ -417,12 +414,6 @@ async function openDoor() {
     render();
     haptic([12, 42, 18]);
     toast('已开门', '');
-    // 首次成功开门：解除"待检测"，显示真实姓名与工号
-    if (!state.badge.revealed) {
-      state.badge.revealed = true;
-      saveBadge();
-      rebuildLanyard().catch(() => {});
-    }
   } catch {
     toast('开门失败', '设备没有响应', 'err');
     state.online = false;
@@ -493,11 +484,7 @@ function closeSheets() {
 
 function renderLingSheet() {
   const b = state.badge;
-  lingNow.textContent = !b
-    ? '小马 · 0000（未授权，不可开门）'
-    : b.revealed
-      ? `${b.name} · ${b.id}`
-      : '待检测 · ****（验证通过，待首次开门）';
+  lingNow.textContent = !b ? '小马 · 0000（未授权，不可开门）' : `${b.name} · ${b.id}`;
 }
 
 function openLingSheet() {
@@ -565,13 +552,13 @@ lingSave.addEventListener('click', async () => {
     const j = await res.json();
     if (!j || j.ok !== 1 || !j.id) throw new Error('bad reply');
 
-    state.badge = { ling, name: j.name || '小马', id: j.id, revealed: false };
+    state.badge = { ling, name: j.name || '小马', id: j.id };
     saveBadge();
     lastKey = '';
     render();
     await rebuildLanyard();
     closeSheets();
-    toast('工牌已切换', '开门一次后显示姓名工号');
+    toast('工牌已切换', `${state.badge.name} · ${state.badge.id}`);
   } catch {
     toast('验证失败', '设备没有响应', 'err');
   } finally {
@@ -596,7 +583,21 @@ async function boot() {
 
   createBubbleMenu({
     mount: document.body,
-    logo: 'assets/logo.png',
+    // 弹层背景：橙色 ASCII 光效（GradientASCII 原生移植）
+    gradient: {
+      colors: ['#4a1d07', '#b8541a', '#ff8a3d', '#ffd9ae'],
+      shape: 'rise',
+      cellSize: 20,
+      density: 0.72,
+      glow: 0.35,
+      softness: 0.7,
+      flow: 0.6,
+      speed: 0.8,
+      gradientOpacity: 0.85,
+      glyphOpacity: 0.8,
+      mouseInteraction: true,
+      clickEffect: 'wave'
+    },
     items: [
       {
         label: '切换工牌',
