@@ -34,6 +34,11 @@ const lingClose = $('lingClose');
 const lingInput = $('lingInput');
 const lingSave = $('lingSave');
 const lingNow = $('lingNow');
+const logSheet = $('logSheet');
+const logClose = $('logClose');
+const logSummary = $('logSummary');
+const logStats = $('logStats');
+const logList = $('logList');
 const diag = $('diag');
 const testBtn = $('testBtn');
 
@@ -481,6 +486,8 @@ function closeSheets() {
   sheet.setAttribute('aria-hidden', 'true');
   lingSheet.classList.remove('open');
   lingSheet.setAttribute('aria-hidden', 'true');
+  logSheet.classList.remove('open');
+  logSheet.setAttribute('aria-hidden', 'true');
 }
 
 function renderLingSheet() {
@@ -574,6 +581,60 @@ lingInput.addEventListener('keydown', event => {
   }
 });
 
+/* ---------- 弹窗：开门记录 ---------- */
+
+function fmtTime(t) {
+  // "2026-10-20 21:05:03" → "10-20 21:05"，非标准格式原样返回
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(String(t || ''));
+  return m ? `${m[2]}-${m[3]} ${m[4]}:${m[5]}` : String(t || '');
+}
+
+function renderLog(j) {
+  if (!j || j.sd !== 1) {
+    logSummary.innerHTML = '<b>—</b><span>SD 卡不可用</span>';
+    logStats.innerHTML = '';
+    logList.innerHTML = '<p class="logEmpty">设备未检测到 SD 卡，暂无记录</p>';
+    return;
+  }
+
+  logSummary.innerHTML =
+    `<b>${j.total | 0}</b><span>累计开门次数</span>` +
+    `<i class="logSd">SD 正常</i>`;
+
+  const rows = (j.kaisu || []).slice().sort((a, b) => (b.n | 0) - (a.n | 0));
+  logStats.innerHTML = rows.length
+    ? rows.map(r =>
+        `<div class="logRow"><span class="logName">${esc(r.name)}</span>` +
+        `<code>${esc(r.id)}</code><b>${r.n | 0} 次</b></div>`
+      ).join('')
+    : '<p class="logEmpty">还没有开门记录</p>';
+
+  const logs = j.log || [];
+  logList.innerHTML = logs.length
+    ? logs.map(r =>
+        `<div class="logItem"><span class="logTime">${esc(fmtTime(r.t))}</span>` +
+        `<span class="logWho">${esc(r.name)}<code>${esc(r.id)}</code></span></div>`
+      ).join('')
+    : '<p class="logEmpty">最近没有开门记录</p>';
+}
+
+async function openLogSheet() {
+  scrim.classList.add('show');
+  logSheet.classList.add('open');
+  logSheet.setAttribute('aria-hidden', 'false');
+  logSummary.innerHTML = '<b>—</b><span>加载中…</span>';
+  logStats.innerHTML = '';
+  logList.innerHTML = '';
+  try {
+    renderLog(await getJSON('/riji', 6000));
+  } catch {
+    logSummary.innerHTML = '<b>—</b><span>加载失败</span>';
+    logList.innerHTML = '<p class="logEmpty">设备没有响应，连接后重试</p>';
+  }
+}
+
+logClose.addEventListener('click', closeSheets);
+
 /* ---------- 启动 ---------- */
 
 async function boot() {
@@ -596,6 +657,12 @@ async function boot() {
         rotation: 6,
         hoverStyles: { bgColor: '#2b1a0e', textColor: '#fff8f0' },
         onClick: openSheet
+      },
+      {
+        label: '开门记录',
+        rotation: -3,
+        hoverStyles: { bgColor: '#f2762a', textColor: '#ffffff' },
+        onClick: openLogSheet
       }
     ]
   });

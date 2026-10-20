@@ -71,6 +71,19 @@
   <button class="btn" id="lingSave" type="button">验证并切换</button>
 </section>
 
+<section class="sheet" id="logSheet" aria-hidden="true" aria-label="开门记录">
+  <div class="sheetHead">
+    <h2>开门记录</h2>
+    <button type="button" id="logClose">完成</button>
+  </div>
+  <div class="logBody">
+    <div class="logSummary" id="logSummary"><b>—</b><span>加载中…</span></div>
+    <div class="logStats" id="logStats"></div>
+    <label class="cap">最近开门 · 新→旧</label>
+    <div class="logList" id="logList"></div>
+  </div>
+</section>
+
 <noscript><div class="noscript">请开启 JavaScript 以使用门禁控制。</div></noscript>
 
 <script src="vendor/gsap.min.js"></script>
