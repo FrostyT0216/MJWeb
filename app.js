@@ -8,7 +8,6 @@
 
 import { createLanyard } from './lanyard.js';
 import { createBubbleMenu } from './bubble_menu.js';
-import { createGradientASCII } from './gradient_ascii.js';
 import { makeCardFaces, makeStrapImage } from './faces.js';
 
 const $ = id => document.getElementById(id);
@@ -581,22 +580,6 @@ async function boot() {
   state.remote = targets.remote;
   state.local = targets.local;
   state.badge = loadBadge();
-
-  // 主页背景：橙色 ASCII 光效（GradientASCII 原生移植），置于 3D 工牌之后
-  createGradientASCII($('bgFx'), {
-    colors: ['#4a1d07', '#b8541a', '#ff8a3d', '#ffd9ae'],
-    shape: 'rise',
-    cellSize: 22,
-    density: 0.62,
-    glow: 0.3,
-    softness: 0.75,
-    flow: 0.6,
-    speed: 0.7,
-    gradientOpacity: 0.8,
-    glyphOpacity: 0.75,
-    mouseInteraction: true,
-    clickEffect: 'wave'
-  });
 
   createBubbleMenu({
     mount: document.body,
