@@ -614,6 +614,11 @@ async function boot() {
     'serviceWorker' in navigator &&
     (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ) {
+    // 新 SW 接管时自动刷新一次（首次安装不刷新，避免死循环）
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController) location.reload();
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }
