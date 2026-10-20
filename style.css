@@ -151,19 +151,20 @@ body::after{
   .bottom{gap:7px;padding-bottom:calc(14px + env(safe-area-inset-bottom))}
   .state{font-size:15px}
 }
-/* ---------- 气泡菜单（BubbleMenu 移植） ---------- */
+/* ---------- 气泡菜单（BubbleMenu 移植 · 右下角悬浮） ---------- */
 
 .bubble-menu.fixed{position:fixed}
 .bubble-menu{
-  left:50%;transform:translateX(-50%);
-  top:calc(11px + env(safe-area-inset-top));z-index:30;
-  display:flex;align-items:center;gap:10px;
+  right:calc(16px + env(safe-area-inset-right));
+  bottom:calc(24px + env(safe-area-inset-bottom));
+  z-index:30;
+  display:flex;flex-direction:column;align-items:center;gap:12px;
   pointer-events:none;
 }
 .bubble-menu .bubble{
-  --bubble-size:44px;
+  --bubble-size:58px;
   width:var(--bubble-size);height:var(--bubble-size);border-radius:50%;
-  box-shadow:0 4px 16px rgba(0,0,0,.35);
+  box-shadow:0 6px 22px rgba(0,0,0,.45);
   display:inline-flex;align-items:center;justify-content:center;
   pointer-events:auto;
 }
@@ -174,18 +175,22 @@ body::after{
   display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;
 }
 .bubble-menu .menu-line{
-  width:20px;height:2px;border-radius:2px;display:block;margin:0 auto;
+  width:26px;height:2.5px;border-radius:2px;display:block;margin:0 auto;
   transition:transform .3s ease,opacity .3s ease;transform-origin:center;
 }
-.bubble-menu .menu-line + .menu-line{margin-top:5px}
-.bubble-menu .menu-btn.open .menu-line:first-child{transform:translateY(3.5px) rotate(45deg)}
-.bubble-menu .menu-btn.open .menu-line:last-child{transform:translateY(-3.5px) rotate(-45deg)}
+.bubble-menu .menu-line + .menu-line{margin-top:7px}
+.bubble-menu .menu-btn.open .menu-line:first-child{transform:translateY(4.75px) rotate(45deg)}
+.bubble-menu .menu-btn.open .menu-line:last-child{transform:translateY(-4.75px) rotate(-45deg)}
 
 .bubble-menu-items.fixed{position:fixed}
 .bubble-menu-items{
   inset:0;display:flex;align-items:center;justify-content:center;
-  pointer-events:none;z-index:29;
+  z-index:29;
+  background:rgba(12,7,4,.42);
+  -webkit-backdrop-filter:blur(18px) saturate(1.15);backdrop-filter:blur(18px) saturate(1.15);
+  animation:bmFadeIn .26s ease;
 }
+@keyframes bmFadeIn{from{opacity:0}to{opacity:1}}
 .bubble-menu-items .pill-list{
   list-style:none;margin:0;padding:24px;display:flex;flex-direction:column;
   align-items:center;gap:14px;width:100%;pointer-events:auto;
@@ -193,16 +198,18 @@ body::after{
 .bubble-menu-items .pill-link{
   --pill-bg:#fff8f0;--pill-color:#2b1a0e;--item-rot:0deg;
   --hover-bg:#f2762a;--hover-color:#fff;
-  width:min(72vw,300px);min-height:66px;border:0;border-radius:999px;
+  width:min(72vw,300px);min-height:70px;border:0;border-radius:999px;
   background:var(--pill-bg);color:var(--pill-color);
-  font-family:inherit;font-size:16.5px;font-weight:600;letter-spacing:.12em;
-  box-shadow:0 10px 30px rgba(0,0,0,.45);
+  font-family:inherit;font-size:17px;font-weight:600;letter-spacing:.12em;
+  box-shadow:0 14px 36px rgba(0,0,0,.5);
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;white-space:nowrap;will-change:transform;
   transition:background .3s ease,color .3s ease;
 }
 .bubble-menu-items .pill-link .pill-label{display:inline-block;will-change:transform,opacity}
 @media (min-width:900px){
+  .bubble-menu{bottom:34px}
+  .bubble-menu .bubble{--bubble-size:64px}
   .bubble-menu-items .pill-link{transform:rotate(var(--item-rot))}
   .bubble-menu-items .pill-link:hover{
     transform:rotate(var(--item-rot)) scale(1.06);
@@ -216,10 +223,6 @@ body::after{
 }
 
 #lingNow{margin:0;color:#e8d7c7;font-size:12.5px;letter-spacing:.05em}
-
-@media (max-height:640px){
-  .bubble-menu{top:calc(8px + env(safe-area-inset-top))}
-}
 
 @media (min-width:700px){
   .bar{padding-left:28px;padding-right:28px}

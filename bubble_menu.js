@@ -101,6 +101,11 @@ export function createBubbleMenu({
   overlay.appendChild(list);
   mount.appendChild(overlay);
 
+  // 点空白（模糊背景）收起菜单；点 pill 不在此触发，由 pill 自身处理器负责
+  overlay.addEventListener('click', event => {
+    if (!event.target.closest('.pill-link')) handleToggle();
+  });
+
   function handleToggle() {
     const nextState = !isMenuOpen;
     if (nextState) showOverlay = true;
